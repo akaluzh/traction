@@ -1,4 +1,4 @@
-  -- тяговый расчет, минимальное время 
+  -- traction calculation, minimum time 
   procedure CalcTrac_MinTime(CalcID in number, MakeStops in integer:= 0, vOptim in integer:=0) is
     vdS number;    vdS0 number;        
     vS1 number;    vS2 number;
@@ -52,7 +52,7 @@
       from train t, locomotive l, locomotive_model lm
       where t.locomotive=l.id and l.model=lm.id and t.id = vTrain;
     
-    -- определяем массу состава (или задаться серией электровоза для пассажирского поезда заданного веса или выбрать серию электропоезда)
+    -- find the train mass (or specify the locomotive)
     vRoadTypeId:=Get_RoadType(vS1);
 
     vSostavMassAllowed := Get_Sostav_Mass(CalcId);
@@ -61,7 +61,7 @@
       -- if vSostavMass > vSostavMassAllowed then return(null); end if;
    -- vSostavMass := vSostavMassAllowed;
 
-    -- начальные условия
+    -- initial conditions
     vdS0:=0.1;
     vdS:=vdS0;
     vV1:=0;
@@ -72,7 +72,7 @@
     vExtraTemp:=15;
     vEnergy:=0;
 
-   -- решаем уравнение движения
+   -- solve the motion equation
     while (vS1<=vEndPoint)
     loop
       vS2:=round(vS1+vdS,-log(10,vdS));
@@ -80,7 +80,7 @@
         null;
       end if;  
       
-   -- поиск "максимального" и "минимального" режимов
+   -- find the "maximum" and "minimum" modes
       vResistForce:=round(Get_Total_Resistance(vV1, vModeTypeId, vS1, false), 2);
       if vModeTypeId=pac_constant.cMotion_Type('traction') then
           vForceMin:=vResistForce;
@@ -99,7 +99,7 @@
              end loop;  
           vTractionMode:=null;    
 
-   -- первичный выбор режима движения
+   -- initial choice of the motion mode
           if (vV1<0.9*VelLimit) then                                                         
              vTractionMode:=vTractionModeMax;
           else  
@@ -118,7 +118,7 @@
              vModeTypeId:=Get_PrevMotionMode(vModeTypeId);
            end loop;
         if vOptim = 1 then    
-         -- корректировка режима на предыдущих шагах для избежания торможения  
+         -- mode correction at precedent steps to avoid braking  
          if vModeTypeId=pac_constant.cMotion_Type('brake') then
            begin
             select t.s1, t.v1, t.modetype, t.time_hours, t.energy into bS1, bV1, vModeTypeId, bt1, ben1 from calctraction_output t where t.id=
@@ -146,7 +146,7 @@
         end if; 
        end if;
       
-   -- расчет силы тяги    
+   -- calculation of the traction force    
       if vModeTypeId=pac_constant.cMotion_Type('traction') then
           vTractionForce:=round(Get_Traction_Force(vV1)/(vSostavMass*9.81), 2);
           if vTractionForce is null then 
@@ -158,7 +158,7 @@
           vTractionForce:=0;
       end if;    
 
-  -- расчет тормозной силы  
+  -- calculation of the braking force  
       if vModeTypeId=pac_constant.cMotion_Type('brake') then
             vBrakingForce:=round(Get_Braking_Force(vV1), 2);  
             vdS:=0.1*vdS0;
@@ -167,17 +167,17 @@
       else vBrakingForce:=0;                   
       end if;            
 
-  -- расчет скорости        
+  -- velocity calculation        
       vForce := vTractionForce - vResistForce - vBrakingForce;
       vV2:=greatest(2*120*vForce*vdS + vV1*vV1,0)**0.5;
 
-  -- расчет тока        
+  -- current calculation        
       if vModeTypeId=pac_constant.cMotion_Type('traction') then
         vCurrent:=nvl(Get_Current(vV1), 0);
       else vCurrent:=0;
       end if;  
 
-  -- расчет времени, энергии        
+  -- time and energy calculation        
       if vS2-vS1 = vdS and (vV1+vV2)<>0 then 
             vdTime:=(vS2-vS1)*2/(vV1+vV2);
       else vdTime:=0;
@@ -203,7 +203,7 @@
                        null, null);
        commit;  
 
-  -- проверка на допустимую скорость  
+  -- check for the allowed velocity  
       if MakeStops=1 then
         begin
         select nvl(min(vl.velocity),60) into VelLimit from v_velocity_limits vl where vl.calc = CalcId
@@ -223,7 +223,7 @@
         vSpeedMin:=VelLimit*0.7; 
       end if;  
 
-  -- корректировка режима при превышении допустимой скорости
+  -- correction of the motion mode if allowed velocity is exceeded
       if vV2>VelLimit then
 
         if vOptim=1 then
@@ -304,19 +304,19 @@
       end if;  
       vS1:=vS2; vV1:=vV2;   
 
-      -- учет времени на остановки
+      -- allowance for the stop times
      begin 
       select nvl(t.time_minutes,0) into vdTime from v_stay_time t where t.calc=CalcId and t.loc=vS2; 
       vTime:=vTime+vdTime/60;
      exception when no_data_found then null;
      end;   
 
-      -- проверка на зацикливание
+      -- check for cycling
      begin
        select t.s1 into bS1 from calctraction_output t where t.calc=CalcId 
          group by t.s1
          having count(t.id)>10;
-       raise_application_error(-20001, 'Некорректное завершение расчета при S='||bS1||'. Cообщите об ошибке разработчику');  
+       raise_application_error(-20001, 'Calculation failed at S='||bS1||'. Contact the support');  
      exception when no_data_found then null;
      end;    
       
